@@ -10,10 +10,10 @@ export default function HomePage() {
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-slate-700">P5 AI Study Hub</h1>
-            <p className="text-sm text-slate-600 mt-1">UNEB-aligned learning activities</p>
+            <p className="text-sm text-slate-600 mt-1">UNEB-aligned learning activities. Pilot designed for Riverside Academy</p>
           </div>
           <Badge variant="secondary" className="bg-emerald-100 text-emerald-700">
-            Demo Mode
+            Version 1
           </Badge>
         </div>
       </header>

@@ -15,37 +15,89 @@ interface Message {
   content: string
 }
 
+interface AIResponse {
+  answer: string
+  suggestions?: string[]
+}
+
 export function QATutor() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
   const [language, setLanguage] = useState<"english" | "luganda">("english")
+  const [suggestions, setSuggestions] = useState<string[]>([])
   const { chat, loading } = useAi()
 
   const clearChat = () => {
     setMessages([])
+    setSuggestions([])
   }
 
-  const sendMessage = async () => {
-    if (!input.trim()) return
+  const handleSuggestionClick = (suggestion: string) => {
+    setInput(suggestion)
+    sendMessage(suggestion)
+  }
 
-    const userMessage: Message = { role: "user", content: input }
+  const sendMessage = async (messageText?: string) => {
+    const messageContent = messageText || input
+    if (!messageContent.trim()) return
+
+    const userMessage: Message = { role: "user", content: messageContent }
     setMessages((prev) => [...prev, userMessage])
     setInput("")
+    setSuggestions([])
 
     try {
       const systemPrompt =
         language === "luganda"
-          ? "You are a kind, age-appropriate UNEB P5 tutor for Ugandan primary school students. IMPORTANT: You must ALWAYS respond ONLY in English. Never use Luganda or any other local language in your responses. Keep replies short (2-4 sentences), simple, step-by-step, and positive. Use vocabulary appropriate for 10-11 year old students."
-          : "You are a kind, age-appropriate UNEB P5 tutor for Ugandan primary school students. IMPORTANT: You must ALWAYS respond ONLY in English. Never use Luganda or any other local language in your responses. Keep replies short (2-4 sentences), simple, step-by-step, and positive. Use vocabulary appropriate for 10-11 year old students."
+          ? 'You are a kind, age-appropriate UNEB P5 tutor for Ugandan primary school students. IMPORTANT: You must ALWAYS respond ONLY in English. Never use Luganda or any other local language in your responses. Keep replies short (2-4 sentences), simple, step-by-step, and positive. Use vocabulary appropriate for 10-11 year old students. After your answer, suggest 2-3 follow-up questions that would help the student understand the topic better. Format your response as JSON: {"answer": "your answer here", "suggestions": ["question 1", "question 2", "question 3"]}'
+          : 'You are a kind, age-appropriate UNEB P5 tutor for Ugandan primary school students. IMPORTANT: You must ALWAYS respond ONLY in English. Never use Luganda or any other local language in your responses. Keep replies short (2-4 sentences), simple, step-by-step, and positive. Use vocabulary appropriate for 10-11 year old students. After your answer, suggest 2-3 follow-up questions that would help the student understand the topic better. Format your response as JSON: {"answer": "your answer here", "suggestions": ["question 1", "question 2", "question 3"]}'
 
       const conversationHistory = messages.map((msg) => `${msg.role}: ${msg.content}`).join("\n")
       const contextualPrompt = conversationHistory
-        ? `Previous conversation:\n${conversationHistory}\n\nCurrent question: ${input}`
-        : input
+        ? `Previous conversation:\n${conversationHistory}\n\nCurrent question: ${messageContent}`
+        : messageContent
 
       const response = await chat(contextualPrompt, systemPrompt)
-      const assistantMessage: Message = { role: "assistant", content: response }
-      setMessages((prev) => [...prev, assistantMessage])
+
+      try {
+        // First try to parse the entire response as JSON
+        const parsedResponse: AIResponse = JSON.parse(response)
+        const assistantMessage: Message = { role: "assistant", content: parsedResponse.answer }
+        setMessages((prev) => [...prev, assistantMessage])
+
+        if (parsedResponse.suggestions && parsedResponse.suggestions.length > 0) {
+          setSuggestions(parsedResponse.suggestions)
+        }
+      } catch (parseError) {
+        // If full JSON parsing fails, try to extract JSON from within the text
+        const jsonMatch = response.match(/\{[^}]*"answer"[^}]*\}/s)
+        if (jsonMatch) {
+          try {
+            const extractedJson = jsonMatch[0]
+            const parsedResponse: AIResponse = JSON.parse(extractedJson)
+
+            // Remove the JSON part from the original response to get clean text
+            const cleanAnswer = response.replace(jsonMatch[0], "").trim()
+            const finalAnswer = cleanAnswer || parsedResponse.answer
+
+            const assistantMessage: Message = { role: "assistant", content: finalAnswer }
+            setMessages((prev) => [...prev, assistantMessage])
+
+            if (parsedResponse.suggestions && parsedResponse.suggestions.length > 0) {
+              setSuggestions(parsedResponse.suggestions)
+            }
+          } catch (extractError) {
+            // If extraction also fails, use the raw response but clean it up
+            const cleanedResponse = response.replace(/\{[^}]*"answer"[^}]*\}/s, "").trim()
+            const assistantMessage: Message = { role: "assistant", content: cleanedResponse || response }
+            setMessages((prev) => [...prev, assistantMessage])
+          }
+        } else {
+          // No JSON found, use the raw response
+          const assistantMessage: Message = { role: "assistant", content: response }
+          setMessages((prev) => [...prev, assistantMessage])
+        }
+      }
     } catch (error) {
       console.error("Failed to send message:", error)
       if (error instanceof Error && error.message.includes("limit")) {
@@ -136,6 +188,26 @@ export function QATutor() {
           </CardContent>
         </Card>
 
+        {suggestions.length > 0 && (
+          <div className="mb-3">
+            <p className="text-xs text-slate-500 mb-2">You might also want to ask:</p>
+            <div className="flex flex-wrap gap-2">
+              {suggestions.map((suggestion, index) => (
+                <Button
+                  key={index}
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleSuggestionClick(suggestion)}
+                  className="text-xs rounded-full bg-white hover:bg-emerald-50 hover:border-emerald-300 text-slate-600"
+                  disabled={loading}
+                >
+                  {suggestion}
+                </Button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Input Area */}
         <div className="flex gap-2">
           <Input
@@ -147,7 +219,7 @@ export function QATutor() {
             disabled={loading}
           />
           <Button
-            onClick={sendMessage}
+            onClick={() => sendMessage()}
             disabled={loading || !input.trim()}
             className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl px-4"
           >
